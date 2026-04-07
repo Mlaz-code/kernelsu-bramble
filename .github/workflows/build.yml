@@ -192,7 +192,13 @@ jobs:
           # features we need (/proc/mounts, /proc/maps, kstat spoofing).
           # ============================================================
           echo "SKIP: KernelSU SUSFS patch (incompatible with rsuntk fork)"
-          echo "Kernel-level SUSFS will still provide mount/maps/kstat hiding"
+
+          # Copy bridge stubs that provide the symbols SUSFS expects from KernelSU
+          cp $GITHUB_WORKSPACE/susfs_ksu_bridge.c fs/susfs_ksu_bridge.c
+          if ! grep -q "susfs_ksu_bridge" fs/Makefile; then
+            echo "obj-\$(CONFIG_KSU_SUSFS) += susfs_ksu_bridge.o" >> fs/Makefile
+            echo "Added susfs_ksu_bridge.o to fs/Makefile"
+          fi
 
           # ============================================================
           # STEP 5: Apply kernel-level SUSFS patch (fs/, include/, etc.)
