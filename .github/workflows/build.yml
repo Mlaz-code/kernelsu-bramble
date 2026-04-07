@@ -185,20 +185,14 @@ jobs:
           fi
 
           # ============================================================
-          # STEP 4: Apply SUSFS patches to KernelSU source files
-          # These add #ifdef CONFIG_KSU_SUSFS blocks to ksu.c, core/, etc.
-          # We try the patch first; if it fails, apply critical parts manually.
+          # STEP 4: Skip KernelSU SUSFS patch (incompatible with rsuntk fork)
+          # The 10_enable_susfs_for_ksu.patch targets tiann/KernelSU's SELinux
+          # layout which differs from rsuntk. Applying it corrupts selinux.c.
+          # The kernel-level SUSFS (Step 5) provides the critical hiding
+          # features we need (/proc/mounts, /proc/maps, kstat spoofing).
           # ============================================================
-          cd KernelSU
-          if patch -p1 --fuzz=3 --no-backup-if-mismatch < ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch 2>&1; then
-            echo "KernelSU SUSFS patch applied"
-          else
-            echo "=== KernelSU SUSFS patch partially failed — showing rejects ==="
-            find . -name "*.rej" -exec echo "--- REJECT: {} ---" \; -exec cat {} \;
-            find . -name "*.rej" -delete
-            echo "Continuing with what applied..."
-          fi
-          cd ..
+          echo "SKIP: KernelSU SUSFS patch (incompatible with rsuntk fork)"
+          echo "Kernel-level SUSFS will still provide mount/maps/kstat hiding"
 
           # ============================================================
           # STEP 5: Apply kernel-level SUSFS patch (fs/, include/, etc.)
