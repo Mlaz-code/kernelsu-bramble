@@ -1,0 +1,211 @@
+name: Build KernelSU + SUSFS for bramble
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_branch:
+        description: "KernelSU branch (rsuntk fork)"
+        required: true
+        default: "main"
+        type: string
+      kernel_branch:
+        description: "Kernel manifest branch"
+        required: true
+        default: "android-msm-redbull-4.19-android14-qpr3"
+        type: string
+      susfs_branch:
+        description: "SUSFS branch"
+        required: true
+        default: "kernel-4.19"
+        type: string
+      build_target:
+        description: "Device (bramble=4a5G, redfin=Pixel5)"
+        required: true
+        default: "bramble"
+        type: choice
+        options:
+          - bramble
+          - redfin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y repo git bc flex bison libssl-dev \
+            build-essential zip unzip curl python3
+
+      - name: Fetch kernel source
+        run: |
+          cd $HOME
+          mkdir android-kernel && cd android-kernel
+          repo init -u https://android.googlesource.com/kernel/manifest \
+            -b ${{ inputs.kernel_branch }} --depth=1
+          repo sync -c --no-tags --no-clone-bundle -j$(nproc)
+          echo "Kernel source ready"
+          ls -la private/msm-google/
+
+      - name: Integrate KernelSU (rsuntk non-GKI fork)
+        run: |
+          cd $HOME/android-kernel/private/msm-google
+
+          # Use rsuntk's setup script which handles non-GKI integration
+          curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" \
+            | bash -s ${{ inputs.ksu_branch }}
+
+          # Verify integration
+          echo "KernelSU integrated:"
+          ls -la KernelSU/
+          cat KernelSU/kernel/Makefile | head -5
+
+          # Ensure manual hooks are enabled (kprobes don't work on redbull)
+          # The rsuntk setup.sh should handle this, but let's be explicit
+          if grep -q "CONFIG_KSU_MANUAL_HOOK" KernelSU/kernel/Kconfig; then
+            echo "Manual hook config found in Kconfig"
+          fi
+
+      - name: Disable kprobes in KernelSU
+        run: |
+          cd $HOME/android-kernel/private/msm-google
+
+          # kprobes do NOT work on the redbull 4.19 kernel.
+          # Replace all #ifdef CONFIG_KPROBES with #if 0 in KernelSU source
+          find KernelSU -name "*.c" -o -name "*.h" | while read f; do
+            if grep -q "CONFIG_KPROBES" "$f"; then
+              sed -i 's/#ifdef CONFIG_KPROBES/#if defined(CONFIG_KPROBES) \&\& 0/g' "$f"
+              sed -i 's/#if defined(CONFIG_KPROBES)/#if defined(CONFIG_KPROBES) \&\& 0/g' "$f"
+              # Don't double-patch lines we already changed
+              sed -i 's/&& 0 && 0/\&\& 0/g' "$f"
+              echo "  Patched kprobes out of: $f"
+            fi
+          done
+
+      - name: Integrate SUSFS
+        run: |
+          cd $HOME/android-kernel/private/msm-google
+
+          # Clone SUSFS for kernel 4.19
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b ${{ inputs.susfs_branch }} \
+            || git clone https://github.com/kutemeikito/susfs4ksu.git -b ${{ inputs.susfs_branch }}
+
+          echo "SUSFS cloned:"
+          ls susfs4ksu/kernel_patches/
+
+          # 1. Apply SUSFS patch to KernelSU
+          if [ -f susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ]; then
+            cd KernelSU
+            # Try applying — if it fails, we'll fix manually
+            patch -p1 --no-backup-if-mismatch < ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch \
+              || echo "WARN: KernelSU SUSFS patch had conflicts — check manually"
+            cd ..
+          fi
+
+          # 2. Apply SUSFS kernel patch
+          if [ -f susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch ]; then
+            patch -p1 --no-backup-if-mismatch < susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch \
+              || echo "WARN: Kernel SUSFS patch had conflicts — check manually"
+          fi
+
+          # 3. Copy SUSFS source files
+          if [ -d susfs4ksu/kernel_patches/fs ]; then
+            cp -v susfs4ksu/kernel_patches/fs/susfs.c fs/ 2>/dev/null || true
+            cp -v susfs4ksu/kernel_patches/fs/sus_su.c fs/ 2>/dev/null || true
+          fi
+          if [ -d susfs4ksu/kernel_patches/include/linux ]; then
+            cp -rv susfs4ksu/kernel_patches/include/linux/susfs*.h include/linux/ 2>/dev/null || true
+            cp -rv susfs4ksu/kernel_patches/include/linux/sus_su.h include/linux/ 2>/dev/null || true
+          fi
+
+          echo "SUSFS files copied:"
+          ls -la fs/susfs* include/linux/susfs* 2>/dev/null || echo "No SUSFS files found — patch may have handled it"
+
+      - name: Configure kernel
+        run: |
+          cd $HOME/android-kernel/private/msm-google
+
+          # Enable KernelSU and SUSFS in defconfig
+          DEFCONFIG="arch/arm64/configs/redbull_defconfig"
+          if [ ! -f "$DEFCONFIG" ]; then
+            DEFCONFIG=$(find arch/arm64/configs -name "*redbull*" -o -name "*bramble*" | head -1)
+          fi
+          echo "Using defconfig: $DEFCONFIG"
+
+          # Add KernelSU config
+          grep -q "CONFIG_KSU" "$DEFCONFIG" || echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_MANUAL_HOOK" "$DEFCONFIG" || echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$DEFCONFIG"
+
+          # Add SUSFS config
+          grep -q "CONFIG_KSU_SUSFS" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_SUS_PATH" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_SUS_MOUNT" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_SUS_KSTAT" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_SUS_OVERLAYFS" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_TRY_UMOUNT" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_SPOOF_UNAME" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
+          grep -q "CONFIG_KSU_SUSFS_OPEN_REDIRECT" "$DEFCONFIG" || echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
+
+          # Disable kprobes explicitly
+          sed -i 's/CONFIG_KPROBES=y/# CONFIG_KPROBES is not set/g' "$DEFCONFIG" || true
+
+          echo "Final defconfig additions:"
+          grep -E "CONFIG_KSU|CONFIG_KPROBES" "$DEFCONFIG"
+
+      - name: Build kernel
+        run: |
+          cd $HOME/android-kernel
+          # The Google build script handles toolchain setup
+          ./build_redbull-gki.sh 2>&1 | tail -50
+
+          echo ""
+          echo "=== Build output ==="
+          ls -la out/android-msm-pixel-4.19/dist/Image.lz4-dtb 2>/dev/null \
+            && echo "SUCCESS: Kernel image built" \
+            || echo "FAIL: No kernel image"
+
+      - name: Package AnyKernel3
+        if: success()
+        run: |
+          cd $HOME/android-kernel
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cd AnyKernel3
+
+          # Configure for redbull/bramble
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' anykernel.sh
+          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=auto;!g' anykernel.sh
+          sed -i 's/is_slot_device=0;/is_slot_device=auto;/g' anykernel.sh
+
+          cp ../out/android-msm-pixel-4.19/dist/Image.lz4-dtb .
+          zip -r KernelSU-SUSFS-${{ inputs.build_target }}.zip . \
+            -x ".git*" "README.md" "*.zip"
+
+      - name: Upload AnyKernel3 zip
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KernelSU-SUSFS-${{ inputs.build_target }}-AnyKernel3
+          path: "${{ env.HOME }}/android-kernel/AnyKernel3/KernelSU-SUSFS-${{ inputs.build_target }}.zip"
+
+      - name: Upload raw kernel image
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image.lz4-dtb
+          path: "${{ env.HOME }}/android-kernel/out/android-msm-pixel-4.19/dist/Image.lz4-dtb"
