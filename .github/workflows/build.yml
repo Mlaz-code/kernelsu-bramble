@@ -222,19 +222,35 @@ jobs:
           zip -r KernelSU-SUSFS-${{ inputs.build_target }}.zip . \
             -x ".git*" "README.md" "*.zip"
 
+      - name: Stage artifacts
+        if: success()
+        run: |
+          mkdir -p /tmp/artifacts
+          cp $HOME/android-kernel/AnyKernel3/KernelSU-SUSFS-${{ inputs.build_target }}.zip /tmp/artifacts/ || true
+          cp $HOME/android-kernel/out/android-msm-pixel-4.19/dist/Image.lz4-dtb /tmp/artifacts/ || true
+          cp $HOME/android-kernel/out/android-msm-pixel-4.19/dist/boot.img /tmp/artifacts/ || true
+          ls -la /tmp/artifacts/
+
       - name: Upload AnyKernel3 zip
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: KernelSU-SUSFS-${{ inputs.build_target }}-AnyKernel3
-          path: "${{ env.HOME }}/android-kernel/AnyKernel3/KernelSU-SUSFS-${{ inputs.build_target }}.zip"
+          path: /tmp/artifacts/KernelSU-SUSFS-${{ inputs.build_target }}.zip
+
+      - name: Upload boot.img
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-img
+          path: /tmp/artifacts/boot.img
 
       - name: Upload raw kernel image
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Image.lz4-dtb
-          path: "${{ env.HOME }}/android-kernel/out/**/Image.lz4-dtb"
+          name: Image-lz4-dtb
+          path: /tmp/artifacts/Image.lz4-dtb
 
       - name: Upload build log on failure
         if: failure()
