@@ -1,0 +1,69 @@
+menu "KernelSU - SUSFS"
+config KSU_SUSFS
+    bool "KernelSU addon - SUSFS"
+    depends on KSU
+    default y
+    help
+      Patch and Enable SUSFS to kernel with KernelSU.
+
+config KSU_SUSFS_HAS_MAGIC_MOUNT
+    bool "SUSFS has magic mount support"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SUS_PATH
+    bool "Enable to hide suspicious path"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SUS_MOUNT
+    bool "Enable to hide suspicious mounts"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+    bool "Auto hide KSU default mounts"
+    depends on KSU_SUSFS_SUS_MOUNT
+    default y
+
+config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+    bool "Auto hide suspicious bind mounts"
+    depends on KSU_SUSFS_SUS_MOUNT
+    default y
+
+config KSU_SUSFS_SUS_KSTAT
+    bool "Enable to spoof suspicious kstat"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SUS_OVERLAYFS
+    bool "Enable to hide suspicious overlayfs"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_TRY_UMOUNT
+    bool "Enable to use try_umount"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+    bool "Auto try_umount for bind mounts"
+    depends on KSU_SUSFS_TRY_UMOUNT
+    default y
+
+config KSU_SUSFS_SPOOF_UNAME
+    bool "Enable to spoof uname"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_ENABLE_LOG
+    bool "Enable SUSFS logging"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_OPEN_REDIRECT
+    bool "Enable open_redirect"
+    depends on KSU_SUSFS
+    default y
+
+endmenu
