@@ -253,12 +253,13 @@ jobs:
           cd $HOME/android-kernel
 
           # Disable the defconfig verification check — it fails when we add
-          # new Kconfig symbols that get reordered by savedefconfig.
-          # Replace the check_defconfig function itself with a no-op.
-          find . -name "*.sh" -exec grep -l "check_defconfig" {} \; | while read f; do
-            # Replace any call to check_defconfig (with or without args/chains)
-            sed -i 's/check_defconfig/true # check_defconfig disabled/g' "$f"
-            echo "Disabled defconfig check in: $f"
+          # new Kconfig symbols that savedefconfig strips/reorders.
+          # The check is invoked via POST_DEFCONFIG_CMDS variable.
+          # We replace ONLY the variable assignment, not the function body.
+          find . -name "*.sh" | xargs grep -l 'POST_DEFCONFIG_CMDS.*check_defconfig' 2>/dev/null | while read f; do
+            sed -i 's/POST_DEFCONFIG_CMDS="check_defconfig && update_config"/POST_DEFCONFIG_CMDS="update_config"/' "$f"
+            sed -i 's/POST_DEFCONFIG_CMDS="check_defconfig"/POST_DEFCONFIG_CMDS="true"/' "$f"
+            echo "Disabled check_defconfig in POST_DEFCONFIG_CMDS: $f"
           done
 
           # Build
