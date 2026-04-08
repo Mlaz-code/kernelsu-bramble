@@ -104,6 +104,123 @@ jobs:
           echo "=== KernelSU Kconfig ==="
           cat drivers/kernelsu/Kconfig | head -20
 
+      - name: Apply manual hook patches (non-GKI required)
+        run: |
+          cd $HOME/android-kernel/private/msm-google
+          echo "=== Applying manual VFS/exec hook patches for non-GKI ==="
+
+          # ============================================================
+          # PATCH 1: fs/exec.c — add ksu_handle_execveat in do_execveat_common
+          # ============================================================
+          if grep -q "ksu_handle_execveat" fs/exec.c; then
+            echo "SKIP: fs/exec.c already patched"
+          else
+            echo "PATCHING: fs/exec.c"
+            # Find do_execveat_common and add hook before the return statement
+            # First add the extern declarations before do_execveat_common
+            sed -i '/^static int do_execveat_common/i \
+          #ifdef CONFIG_KSU\
+          extern bool ksu_execveat_hook __read_mostly;\
+          extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,\
+          \t\t\tvoid *envp, int *flags);\
+          extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,\
+          \t\t\t\t void *argv, void *envp, int *flags);\
+          #endif' fs/exec.c
+
+            # Add the hook call inside do_execveat_common, after the opening brace
+            # We need to find the function body. For kernel 4.19, it calls __do_execve_file
+            sed -i '/^static int do_execveat_common/,/return __do_execve_file\|return do_execveat/{
+              /return __do_execve_file\|return do_execveat/ {
+                i\
+          #ifdef CONFIG_KSU\
+          \tif (unlikely(ksu_execveat_hook))\
+          \t\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\
+          \telse\
+          \t\tksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);\
+          #endif
+              }
+            }' fs/exec.c
+            grep -n "ksu_handle_execveat" fs/exec.c && echo "OK: fs/exec.c patched" || echo "WARN: patch may have failed"
+          fi
+
+          # ============================================================
+          # PATCH 2: fs/open.c — add ksu_handle_faccessat in do_faccessat
+          # ============================================================
+          if grep -q "ksu_handle_faccessat" fs/open.c; then
+            echo "SKIP: fs/open.c already patched"
+          else
+            echo "PATCHING: fs/open.c"
+            sed -i '/^long do_faccessat/i \
+          #ifdef CONFIG_KSU\
+          extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,\
+          \t\t\t int *flags);\
+          #endif' fs/open.c
+
+            # Add hook at the start of do_faccessat body
+            sed -i '/^long do_faccessat/,/if (mode & ~S_IRWXO)/{
+              /if (mode & ~S_IRWXO)/ {
+                i\
+          #ifdef CONFIG_KSU\
+          \tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\
+          #endif
+              }
+            }' fs/open.c
+            grep -n "ksu_handle_faccessat" fs/open.c && echo "OK: fs/open.c patched" || echo "WARN: patch may have failed"
+          fi
+
+          # ============================================================
+          # PATCH 3: fs/read_write.c — add ksu_handle_vfs_read in vfs_read
+          # ============================================================
+          if grep -q "ksu_handle_vfs_read" fs/read_write.c; then
+            echo "SKIP: fs/read_write.c already patched"
+          else
+            echo "PATCHING: fs/read_write.c"
+            sed -i '/^ssize_t vfs_read/i \
+          #ifdef CONFIG_KSU\
+          extern bool ksu_vfs_read_hook __read_mostly;\
+          extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,\
+          \t\t\tsize_t *count_ptr, loff_t **pos);\
+          #endif' fs/read_write.c
+
+            # Add hook at start of vfs_read body, before the FMODE_READ check
+            sed -i '/^ssize_t vfs_read/,/if (!(file->f_mode & FMODE_READ))/{
+              /if (!(file->f_mode & FMODE_READ))/ {
+                i\
+          #ifdef CONFIG_KSU\
+          \tif (unlikely(ksu_vfs_read_hook))\
+          \t\tksu_handle_vfs_read(&file, &buf, &count, &pos);\
+          #endif
+              }
+            }' fs/read_write.c
+            grep -n "ksu_handle_vfs_read" fs/read_write.c && echo "OK: fs/read_write.c patched" || echo "WARN: patch may have failed"
+          fi
+
+          # ============================================================
+          # PATCH 4: fs/stat.c — add ksu_handle_stat in vfs_statx
+          # ============================================================
+          if grep -q "ksu_handle_stat" fs/stat.c; then
+            echo "SKIP: fs/stat.c already patched"
+          else
+            echo "PATCHING: fs/stat.c"
+            sed -i '/^int vfs_statx/i \
+          #ifdef CONFIG_KSU\
+          extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\
+          #endif' fs/stat.c
+
+            # Add hook at start of vfs_statx body
+            sed -i '/^int vfs_statx/,/unsigned int lookup_flags/{
+              /unsigned int lookup_flags/ {
+                a\
+          #ifdef CONFIG_KSU\
+          \tksu_handle_stat(&dfd, &filename, &flags);\
+          #endif
+              }
+            }' fs/stat.c
+            grep -n "ksu_handle_stat" fs/stat.c && echo "OK: fs/stat.c patched" || echo "WARN: patch may have failed"
+          fi
+
+          echo "=== Manual hook patches complete ==="
+
       - name: Integrate SUSFS
         if: ${{ inputs.enable_susfs }}
         run: |
