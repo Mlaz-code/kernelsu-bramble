@@ -69,6 +69,41 @@ jobs:
           echo "KernelSU integrated"
           ls KernelSU/kernel/ | head -10
 
+          # Verify and fix KernelSU build integration
+          echo "=== Verifying KernelSU integration ==="
+
+          # Check symlink
+          if [ -L "drivers/kernelsu" ]; then
+            echo "OK: drivers/kernelsu symlink exists → $(readlink drivers/kernelsu)"
+          else
+            echo "FIXING: Creating drivers/kernelsu symlink"
+            ln -sf "$(pwd)/KernelSU/kernel" drivers/kernelsu
+          fi
+
+          # Ensure drivers/Makefile includes kernelsu
+          if grep -q "kernelsu" drivers/Makefile; then
+            echo "OK: drivers/Makefile references kernelsu"
+          else
+            echo "FIXING: Adding kernelsu to drivers/Makefile"
+            echo "obj-\$(CONFIG_KSU) += kernelsu/" >> drivers/Makefile
+          fi
+
+          # Ensure drivers/Kconfig sources KernelSU Kconfig
+          if grep -q "kernelsu/Kconfig" drivers/Kconfig; then
+            echo "OK: drivers/Kconfig sources kernelsu/Kconfig"
+          else
+            echo "FIXING: Adding kernelsu/Kconfig to drivers/Kconfig"
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          fi
+
+          # Show what we have
+          echo "=== drivers/Makefile KSU line ==="
+          grep -n "kernelsu\|KSU" drivers/Makefile || echo "(none found!)"
+          echo "=== drivers/Kconfig KSU line ==="
+          grep -n "kernelsu\|KSU" drivers/Kconfig || echo "(none found!)"
+          echo "=== KernelSU Kconfig ==="
+          cat drivers/kernelsu/Kconfig | head -20
+
       - name: Integrate SUSFS
         if: ${{ inputs.enable_susfs }}
         run: |
