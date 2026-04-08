@@ -113,6 +113,11 @@ jobs:
           sed -i 's|#define KSUD_PATH "/data/adb/ksud"|#define KSUD_PATH "/data/local/tmp/ksud"|' KernelSU/kernel/runtime/ksud.h
           echo "=== KSUD_PATH ==="
           grep KSUD_PATH KernelSU/kernel/runtime/ksud.h
+
+          # Bootstrap fix: allow ADB shell root access without Manager UI
+          sed -i 's|bool allow_shell = IS_ENABLED(CONFIG_KSU_DEBUG);|bool allow_shell = true;|' KernelSU/kernel/ksu.c
+          echo "=== allow_shell ==="
+          grep "allow_shell" KernelSU/kernel/ksu.c | head -3
           python3 $GITHUB_WORKSPACE/apply_ksu_hooks.py .
 
       - name: Integrate SUSFS
