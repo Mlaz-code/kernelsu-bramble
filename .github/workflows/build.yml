@@ -107,6 +107,12 @@ jobs:
       - name: Apply manual hook patches (non-GKI required)
         run: |
           cd $HOME/android-kernel/private/msm-google
+
+          # Bootstrap fix: change KSUD_PATH to /data/local/tmp/ksud
+          # This lets KSU find the ksud binary that we can push without root
+          sed -i 's|#define KSUD_PATH "/data/adb/ksud"|#define KSUD_PATH "/data/local/tmp/ksud"|' KernelSU/kernel/runtime/ksud.h
+          echo "=== KSUD_PATH ==="
+          grep KSUD_PATH KernelSU/kernel/runtime/ksud.h
           python3 $GITHUB_WORKSPACE/apply_ksu_hooks.py .
 
       - name: Integrate SUSFS
@@ -269,8 +275,7 @@ jobs:
 
           # Enable KernelSU
           grep -q "CONFIG_KSU=y" "$DEFCONFIG" || echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-          # Enable debug to diagnose "Failed to grant root"
-          grep -q "CONFIG_KSU_DEBUG=y" "$DEFCONFIG" || echo "CONFIG_KSU_DEBUG=y" >> "$DEFCONFIG"
+          # CONFIG_KSU_DEBUG disabled — caused bootloop
 
           # SUSFS configs
           if [ "${{ inputs.enable_susfs }}" = "true" ]; then
