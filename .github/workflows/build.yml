@@ -305,6 +305,21 @@ jobs:
             echo "Build had issues — checking output"
           fi
 
+          # Verify KSU was actually compiled
+          echo "=== KSU compilation check ==="
+          BUILD_CONFIG=$(find out/ -name ".config" -type f | head -1)
+          if [ -n "$BUILD_CONFIG" ]; then
+            echo "Build .config KSU entries:"
+            grep "CONFIG_KSU" "$BUILD_CONFIG" || echo "NO CONFIG_KSU in build .config!"
+          else
+            echo "WARNING: No .config found in out/"
+          fi
+          echo "=== KSU object files ==="
+          find out/ -name "*.o" -path "*/kernelsu/*" 2>/dev/null | head -20
+          find out/ -name "ksu*" -type f 2>/dev/null | head -10
+          echo "=== KSU in build log ==="
+          grep -i "kernelsu\|ksu" /tmp/build.log | head -20
+
           # Check output
           echo "=== Kernel images ==="
           find out/ -name "Image*" -type f 2>/dev/null | head -5
