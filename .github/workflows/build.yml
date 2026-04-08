@@ -269,6 +269,8 @@ jobs:
 
           # Enable KernelSU
           grep -q "CONFIG_KSU=y" "$DEFCONFIG" || echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+          # Enable debug to diagnose "Failed to grant root"
+          grep -q "CONFIG_KSU_DEBUG=y" "$DEFCONFIG" || echo "CONFIG_KSU_DEBUG=y" >> "$DEFCONFIG"
 
           # SUSFS configs
           if [ "${{ inputs.enable_susfs }}" = "true" ]; then
@@ -324,6 +326,8 @@ jobs:
           find out/ -name "ksu*" -type f 2>/dev/null | head -10
           echo "=== KSU in build log ==="
           grep -i "kernelsu\|ksu" /tmp/build.log | head -20
+          echo "=== KSU compat flags ==="
+          grep -i "KSU_COMPAT\|KSU_HAS\|KSU_TYPE_VAL\|KSU_OPTIONAL" /tmp/build.log | head -20
 
           # Check output
           echo "=== Kernel images ==="
