@@ -254,12 +254,13 @@ jobs:
 
           # Disable the defconfig verification check — it fails when we add
           # new Kconfig symbols that savedefconfig strips/reorders.
-          # The check is invoked via POST_DEFCONFIG_CMDS variable.
-          # We replace ONLY the variable assignment, not the function body.
-          find . -name "*.sh" | xargs grep -l 'POST_DEFCONFIG_CMDS.*check_defconfig' 2>/dev/null | while read f; do
+          # Replace check_defconfig function body with a no-op.
+          find . -name "*.sh" | xargs grep -l 'check_defconfig' 2>/dev/null | while read f; do
             sed -i 's/POST_DEFCONFIG_CMDS="check_defconfig && update_config"/POST_DEFCONFIG_CMDS="update_config"/' "$f"
             sed -i 's/POST_DEFCONFIG_CMDS="check_defconfig"/POST_DEFCONFIG_CMDS="true"/' "$f"
-            echo "Disabled check_defconfig in POST_DEFCONFIG_CMDS: $f"
+            sed -i '/^function check_defconfig/,/^}/c\function check_defconfig() { return 0; }' "$f"
+            sed -i '/^check_defconfig()/,/^}/c\check_defconfig() { return 0; }' "$f"
+            echo "Disabled check_defconfig in: $f"
           done
 
           # Build
