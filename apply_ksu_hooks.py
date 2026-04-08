@@ -80,12 +80,18 @@ extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
     func_start = match.start()
     content = content[:func_start] + decl + content[func_start:]
 
-    # Now find the function body and insert hook after opening brace
-    # Re-find since we modified content
-    match = re.search(r'(static\s+int\s+do_execveat_common\b[^{]*\{)', content, re.MULTILINE | re.DOTALL)
+    # Insert hook before the return statement (after all variable declarations)
+    # In kernel 4.19, do_execveat_common calls __do_execve_file or similar
+    match = re.search(r'(static\s+int\s+do_execveat_common\b.*?\{)(.*?)(return\s+__do_execve)', content, re.MULTILINE | re.DOTALL)
     if match:
-        insert_pos = match.end()
-        content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
+        insert_pos = match.start(3)
+        content = content[:insert_pos] + hook + '\n\t' + content[insert_pos:]
+    else:
+        # Fallback: insert after opening brace
+        match = re.search(r'(static\s+int\s+do_execveat_common\b[^{]*\{)', content, re.MULTILINE | re.DOTALL)
+        if match:
+            insert_pos = match.end()
+            content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
 
     with open(path, 'w') as f:
         f.write(content)
@@ -124,11 +130,12 @@ extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int
     # Insert declarations before function
     content = content[:match.start()] + decl + content[match.start():]
 
-    # Re-find and insert hook after opening brace
-    match = re.search(r'(long\s+do_faccessat\b[^{]*\{)', content, re.MULTILINE | re.DOTALL)
+    # Insert hook AFTER variable declarations (before first 'if' statement)
+    # In do_faccessat, the first 'if' is typically 'if (mode & ~S_IRWXO)'
+    match = re.search(r'(long\s+do_faccessat\b.*?\{)(.*?)(if\s*\(mode\s*&\s*~S_IRWXO\))', content, re.MULTILINE | re.DOTALL)
     if match:
-        insert_pos = match.end()
-        content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
+        insert_pos = match.start(3)
+        content = content[:insert_pos] + hook + '\n\t' + content[insert_pos:]
 
     with open(path, 'w') as f:
         f.write(content)
@@ -225,11 +232,17 @@ extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *fla
     # Insert declarations before function
     content = content[:match.start()] + decl + content[match.start():]
 
-    # Re-find and insert hook after opening brace
-    match = re.search(r'(int\s+vfs_statx\b[^{]*\{)', content, re.MULTILINE | re.DOTALL)
+    # Insert hook after variable declarations, before first 'if' in vfs_statx
+    match = re.search(r'(int\s+vfs_statx\b.*?\{)(.*?)(if\s*\(\(flags\s*&)', content, re.MULTILINE | re.DOTALL)
     if match:
-        insert_pos = match.end()
-        content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
+        insert_pos = match.start(3)
+        content = content[:insert_pos] + hook + '\n\t' + content[insert_pos:]
+    else:
+        # Fallback: after 'unsigned int lookup_flags' line
+        match = re.search(r'(int\s+vfs_statx\b.*?unsigned int lookup_flags[^;]*;)', content, re.MULTILINE | re.DOTALL)
+        if match:
+            insert_pos = match.end()
+            content = content[:insert_pos] + '\n' + hook + content[insert_pos:]
 
     with open(path, 'w') as f:
         f.write(content)
