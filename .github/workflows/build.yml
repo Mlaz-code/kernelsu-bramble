@@ -108,10 +108,8 @@ jobs:
         run: |
           cd $HOME/android-kernel/private/msm-google
 
-          # Bootstrap fix: change KSUD_PATH to /data/local/tmp/ksud
-          # This lets KSU find the ksud binary that we can push without root
-          sed -i 's|#define KSUD_PATH "/data/adb/ksud"|#define KSUD_PATH "/data/local/tmp/ksud"|' KernelSU/kernel/runtime/ksud.h
-          echo "=== KSUD_PATH ==="
+          # KSUD_PATH: keep default /data/adb/ksud (bootstrap complete, ksud installed there)
+          echo "=== KSUD_PATH (default) ==="
           grep KSUD_PATH KernelSU/kernel/runtime/ksud.h
 
           # Bootstrap fix: allow ADB shell root access without Manager UI
